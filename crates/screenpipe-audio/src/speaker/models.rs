@@ -88,7 +88,7 @@ pub async fn get_or_download_model(model_type: PyannoteModel) -> Result<PathBuf>
         let mut last_err = None;
         for attempt in 1..=MAX_RETRIES {
             info!("{} model download attempt {}/{}", filename, attempt, MAX_RETRIES);
-            match download_model(model_type).await {
+            match download_model(&model_type).await {
                 Ok(_) => {
                     last_err = None;
                     break;
@@ -136,7 +136,7 @@ pub enum PyannoteModel {
     Embedding,
 }
 
-async fn download_model(model_type: PyannoteModel) -> Result<()> {
+async fn download_model(model_type: &PyannoteModel) -> Result<()> {
     let (url, filename) = match model_type {
         PyannoteModel::Segmentation => (
             "https://github.com/screenpipe/screenpipe/raw/refs/heads/main/crates/screenpipe-audio/models/pyannote/segmentation-3.0.onnx",
