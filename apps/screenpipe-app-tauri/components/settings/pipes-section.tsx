@@ -1509,7 +1509,9 @@ export function PipesSection() {
             const runningExec = recentExecs.find((e) => e.status === "running");
             const lastExec = recentExecs[0];
             const hasMissingConnections = (pipe.config.connections ?? []).some((id) => {
-              const conn = availableConnections.find((c) => c.id === id);
+              // support instance keys like "notion:crm" — match on base id
+              const baseId = id.includes(":") ? id.split(":")[0] : id;
+              const conn = availableConnections.find((c) => c.id === baseId);
               return !conn || !conn.connected;
             });
             const lastStatus = isRunning
