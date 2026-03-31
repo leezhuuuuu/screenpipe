@@ -565,8 +565,9 @@ function PipePresetSelector({
       ? [pipe.config.preset]
       : [];
 
-  const primaryPreset = presetList[0] || null;
-  const fallbackPreset = presetList[1] || null;
+  // "auto" is a legacy/special value meaning "use default" — treat as no selection
+  const primaryPreset = presetList[0] && presetList[0] !== "auto" ? presetList[0] : null;
+  const fallbackPreset = presetList[1] && presetList[1] !== "auto" ? presetList[1] : null;
   const [showFallback, setShowFallback] = useState(!!fallbackPreset);
 
   const savePresets = (primary: string | null, fallback: string | null) => {
