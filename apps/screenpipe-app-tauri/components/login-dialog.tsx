@@ -47,13 +47,8 @@ interface LoginDialogState {
 export const useLoginDialog = create<LoginDialogState>((set) => ({
   isOpen: false,
   setIsOpen: (open) => set({ isOpen: open }),
-  checkLogin: (user, showDialog = true) => {
-    if (!user?.token) {
-      if (showDialog) {
-        set({ isOpen: true });
-      }
-      return false;
-    }
+  checkLogin: () => {
+    // Bypass login check for local development
     return true;
   },
 }));

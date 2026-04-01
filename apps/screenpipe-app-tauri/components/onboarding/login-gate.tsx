@@ -241,12 +241,13 @@ const OnboardingLogin: React.FC<OnboardingLoginProps> = ({ handleNextSlide }) =>
   }, []);
 
   useEffect(() => {
-    if (settings.user?.token && !hasAdvanced.current) {
+    // Bypass login check - auto advance after short delay
+    if (!hasAdvanced.current) {
       hasAdvanced.current = true;
       posthog.capture("onboarding_login_completed");
       setTimeout(() => handleNextSlide(), 500);
     }
-  }, [settings.user?.token, handleNextSlide]);
+  }, [handleNextSlide]);
 
   const handleLogin = useCallback(() => {
     posthog.capture("onboarding_login_clicked");
@@ -260,7 +261,7 @@ const OnboardingLogin: React.FC<OnboardingLoginProps> = ({ handleNextSlide }) =>
     handleNextSlide();
   }, [handleNextSlide]);
 
-  const isLoggedIn = !!settings.user?.token;
+  const isLoggedIn = true; // Bypass login check
 
   return (
     <div className="w-full flex flex-col items-center justify-center min-h-[400px] relative">
