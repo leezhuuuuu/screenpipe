@@ -222,9 +222,102 @@ curl "http://localhost:3030/frames/12345/elements"
 
 OCR 专用角色：`line`、`word`、`block`、`paragraph`、`page`
 
+### UI 元素响应格式
+
+`GET /frames/{frame_id}/elements` 返回结构化的 UI 元素列表：
+
+```json
+{
+  "data": [
+    {
+      "id": 16229,
+      "frame_id": 447,
+      "role": "block",
+      "text": "Code",
+      "confidence": 1.0,
+      "bounds": {
+        "left": 0.030523256,
+        "top": 0.013392857,
+        "width": 0.021802324,
+        "height": 0.011160714
+      },
+      "depth": 0,
+      "sort_order": 0,
+      "source": "ocr",
+      "parent_id": null
+    }
+  ],
+  "pagination": {
+    "limit": 21,
+    "offset": 0,
+    "total": 198
+  }
+}
+```
+
+### 典型元素示例
+
+以下是从实际帧中提取的高置信度（≥ 0.9）元素示例：
+
+| ID | 角色 | 文本内容 | 置信度 |
+|----|------|----------|--------|
+| 16329 | block | `comprehensive REST API guide for Screenpipe. Let me verify it was written correctly.` | 1.0 |
+| 16264 | block | `* BATCH_TRANSCRIPTION_SPEC.md` | 1.0 |
+| 16290 | block | `--dangerously-skip-permissions — 162×45` | 1.0 |
+| 16388 | block | `/frames/:frame_id/text` | 1.0 |
+| 16402 | block | `/memory to view and manage Claude memory` | 1.0 |
+
+**代表性元素分类：**
+
+1. **对话/消息内容** (如 Claude Code 输出)
+2. **文件树/目录结构**
+3. **命令行/代码片段**
+4. **API 端点路径**
+5. **快捷键提示**
+
 ---
 
 ## 帧/截图
+
+### 获取帧列表
+
+有多种方式获取帧列表：
+
+**1. 使用 `/search` 搜索帧**
+
+通过 `content_type` 过滤获取帧：
+
+```bash
+# 获取所有帧（配合时间范围）
+curl "http://localhost:3030/search?content_type=accessibility&start_time=1h%20ago&limit=50"
+
+# 搜索特定应用的帧
+curl "http://localhost:3030/search?app_name=Chrome&start_time=1h%20ago&limit=50"
+```
+
+响应中的 `frame_id` 可用于调用 `/frames/{frame_id}` 获取具体截图。
+
+**2. 使用 `/raw_sql` 直接查询**
+
+```bash
+# 获取最近的帧列表
+curl -X POST http://localhost:3030/raw_sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT id, timestamp, app_name, window_name FROM frames ORDER BY timestamp DESC LIMIT 50"}'
+
+# 按应用分组获取帧统计
+curl -X POST http://localhost:3030/raw_sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT app_name, COUNT(*) as count, MIN(timestamp) as first_seen, MAX(timestamp) as last_seen FROM frames WHERE timestamp > datetime('\''now'\'', '\''-24 hours'\'') GROUP BY app_name ORDER BY count DESC LIMIT 20"}'
+```
+
+**3. 使用 `/activity-summary`**
+
+获取应用级别的帧统计（不返回具体帧 ID）：
+
+```bash
+curl "http://localhost:3030/activity-summary?start_time=1h%20ago"
+```
 
 ### `GET /frames/{frame_id}`
 
@@ -244,6 +337,8 @@ curl -o /tmp/frame_redacted.png "http://localhost:3030/frames/12345?redact_pii=t
 |------|------|------|
 | `redact_pii` | boolean | 是否模糊/编辑检测到的 PII（信用卡、SSN、邮箱等） |
 
+**响应：** 原始 PNG/JPEG 二进制数据
+
 ### `GET /frames/{frame_id}/text`
 
 获取帧的 OCR 文本。
@@ -251,6 +346,45 @@ curl -o /tmp/frame_redacted.png "http://localhost:3030/frames/12345?redact_pii=t
 ```bash
 curl "http://localhost:3030/frames/12345/text"
 ```
+
+**响应格式：**
+```json
+{
+  "frame_id": 439,
+  "text_positions": [
+    {
+      "bounds": {
+        "height": 0.01882452,
+        "left": 0.010102213,
+        "top": 0.010677027,
+        "width": 0.049563013
+      },
+      "confidence": 0.5,
+      "text": "Typora"
+    },
+    {
+      "bounds": {
+        "height": 0.013392856,
+        "left": 0.4636628,
+        "top": 0.058035716,
+        "width": 0.09011628
+      },
+      "confidence": 1.0,
+      "text": "REST_API_GUIDE.md~"
+    }
+  ]
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `frame_id` | integer | 帧 ID |
+| `text_positions` | array | 文本位置数组 |
+| `text_positions[].bounds` | object | 边界框（归一化 0-1 坐标） |
+| `text_positions[].confidence` | float | 识别置信度（0-1） |
+| `text_positions[].text` | string | 识别出的文本 |
 
 ### `POST /frames/{frame_id}/text`
 
@@ -260,6 +394,8 @@ curl "http://localhost:3030/frames/12345/text"
 curl -X POST "http://localhost:3030/frames/12345/text"
 ```
 
+**响应格式：** 与 `GET /frames/{frame_id}/text` 相同
+
 ### `GET /frames/{frame_id}/context`
 
 获取帧的上下文信息，包括无障碍文本、解析的节点和提取的 URL。
@@ -268,12 +404,163 @@ curl -X POST "http://localhost:3030/frames/12345/text"
 curl "http://localhost:3030/frames/12345/context"
 ```
 
+**响应格式：**
+```json
+{
+  "frame_id": 439,
+  "text": "合并的纯文本内容，所有文本按位置顺序拼接...",
+  "text_source": "accessibility",
+  "urls": [
+    "http://localhost:3030/ai/status",
+    "http://localhost:3030/ai/chat/completions"
+  ],
+  "nodes": []
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `frame_id` | integer | 帧 ID |
+| `text` | string | 合并的纯文本内容（去除了格式） |
+| `text_source` | string | 文本来源：`accessibility`（无障碍树）或 `ocr` |
+| `urls` | array | 从文本中提取的 URL |
+| `nodes` | array | 结构化的 DOM 节点（如果有） |
+
 ### `GET /frames/{frame_id}/metadata`
 
 获取帧的元数据。
 
 ```bash
 curl "http://localhost:3030/frames/12345/metadata"
+```
+
+**响应格式：**
+```json
+{
+  "frame_id": 447,
+  "timestamp": "2026-04-01T20:51:15.637923+08:00"
+}
+```
+
+**如需更多元数据字段，使用 SQL 查询：**
+
+```bash
+curl -X POST http://localhost:3030/raw_sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT id, timestamp, app_name, window_name, browser_url, focused, device_name, text_source, capture_trigger FROM frames WHERE id = 447 LIMIT 1"}'
+```
+
+**响应：**
+```json
+[
+  {
+    "id": 447,
+    "timestamp": "2026-04-01T20:51:15.637923+08:00",
+    "app_name": "",
+    "window_name": "",
+    "browser_url": "",
+    "focused": 1,
+    "device_name": "monitor_1",
+    "text_source": "ocr",
+    "capture_trigger": "visual_change"
+  }
+]
+```
+
+**frames 表完整字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | INTEGER | 帧 ID（主键） |
+| `timestamp` | TIMESTAMP | 时间戳 |
+| `app_name` | TEXT | 应用名称 |
+| `window_name` | TEXT | 窗口标题 |
+| `browser_url` | TEXT | 浏览器 URL |
+| `focused` | BOOLEAN | 是否聚焦窗口 |
+| `device_name` | TEXT | 设备名称（如 `monitor_1`） |
+| `text_source` | TEXT | 文本来源：`ocr` 或 `accessibility` |
+| `capture_trigger` | TEXT | 捕获触发条件：`visual_change`、`audio` 等 |
+| `video_chunk_id` | INTEGER | 关联的视频块 ID |
+| `offset_index` | INTEGER | 帧在视频中的偏移索引 |
+| `name` | TEXT | 帧文件名 |
+| `sync_id` | TEXT | 同步 ID |
+| `machine_id` | TEXT | 机器 UUID |
+| `snapshot_path` | TEXT | 快照路径 |
+| `content_hash` | INTEGER | 内容哈希 |
+| `simhash` | INTEGER | 相似度哈希 |
+
+### `GET /frames/{frame_id}/elements`
+
+获取特定帧的所有 UI 元素。
+
+```bash
+curl "http://localhost:3030/frames/12345/elements"
+```
+
+**响应格式：**
+```json
+{
+  "data": [
+    {
+      "id": 16229,
+      "frame_id": 447,
+      "role": "block",
+      "text": "Code",
+      "confidence": 1.0,
+      "bounds": {
+        "height": 0.01116071,
+        "left": 0.03052325,
+        "top": 0.01339285,
+        "width": 0.02180232
+      },
+      "depth": 0,
+      "sort_order": 0,
+      "source": "ocr",
+      "parent_id": null
+    },
+    {
+      "id": 16329,
+      "frame_id": 447,
+      "role": "block",
+      "text": "comprehensive REST API guide for Screenpipe. Let me verify it was written correctly.",
+      "confidence": 1.0,
+      "bounds": { "left": 0.07, "top": 0.22, "width": 0.22, "height": 0.02 },
+      "depth": 0,
+      "sort_order": 28,
+      "source": "ocr",
+      "parent_id": null
+    }
+  ],
+  "pagination": {
+    "limit": 21,
+    "offset": 0,
+    "total": 198
+  }
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | integer | 元素 ID |
+| `frame_id` | integer | 所属帧 ID |
+| `role` | string | 元素角色（如 `block`、`line`、`word`） |
+| `text` | string | 元素文本内容 |
+| `confidence` | float | 识别置信度（0-1） |
+| `bounds` | object | 边界框（归一化坐标） |
+| `depth` | integer | DOM 树深度 |
+| `sort_order` | integer | 排序顺序 |
+| `source` | string | 来源：`ocr` 或 `accessibility` |
+| `parent_id` | integer | 父元素 ID（null 表示根元素） |
+
+**高置信度元素筛选示例：**
+
+```bash
+# 获取置信度 >= 0.9 的元素
+curl -s "http://localhost:3030/frames/447/elements" | jq '[.data[] | select(.confidence >= 0.9) | {id, role, text, confidence}]'
 ```
 
 ### `GET /frames/next-valid`
@@ -661,6 +948,45 @@ curl -X POST http://localhost:3030/raw_sql \
 | `accessibility` | `app_name`, `window_name`, `text_content`, `browser_url` | `timestamp` |
 | `meetings` | `meeting_app`, `title`, `attendees`, `detection_source` | `meeting_start` |
 | `memories` | `content`, `source`, `tags`, `importance` | `created_at` |
+
+**frames 表完整字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | INTEGER | 帧 ID（主键） |
+| `timestamp` | TIMESTAMP | 捕获时间 |
+| `app_name` | TEXT | 应用名称 |
+| `window_name` | TEXT | 窗口标题 |
+| `browser_url` | TEXT | 浏览器 URL |
+| `focused` | BOOLEAN | 是否聚焦窗口 |
+| `device_name` | TEXT | 设备名称（如 `monitor_1`） |
+| `text_source` | TEXT | 文本来源：`ocr` 或 `accessibility` |
+| `capture_trigger` | TEXT | 捕获触发：`visual_change`、`audio` 等 |
+| `video_chunk_id` | INTEGER | 关联视频块 ID |
+| `offset_index` | INTEGER | 帧在视频中的偏移 |
+| `name` | TEXT | 帧文件名 |
+| `sync_id` | TEXT | 同步 ID |
+| `machine_id` | TEXT | 机器 UUID |
+| `snapshot_path` | TEXT | 快照路径 |
+| `content_hash` | INTEGER | 内容哈希 |
+| `simhash` | INTEGER | 相似度哈希 |
+| `cloud_blob_id` | TEXT | 云存储 ID |
+| `full_text` | TEXT | 完整文本 |
+| `elements_ref_frame_id` | INTEGER | 元素引用帧 ID |
+
+**查询帧元数据示例：**
+
+```bash
+# 获取帧基本信息
+curl -X POST http://localhost:3030/raw_sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT id, timestamp, app_name, window_name, focused, device_name, text_source, capture_trigger FROM frames WHERE id = 447 LIMIT 1"}'
+
+# 获取今日所有帧的时间范围
+curl -X POST http://localhost:3030/raw_sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT MIN(timestamp) as earliest, MAX(timestamp) as latest, COUNT(*) as total FROM frames WHERE date(timestamp) = '\''2026-04-01'\'' LIMIT 1"}'
+```
 
 **示例查询：**
 
@@ -1292,6 +1618,107 @@ OpenAI 兼容的 Chat Completions 端点。
 curl -X POST "http://localhost:3030/ai/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{"model": "apple", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+---
+
+## 端点返回数据对比
+
+### 帧相关端点返回数据对比
+
+| 端点 | 返回内容 | 数据格式 | 适用场景 |
+|------|----------|----------|----------|
+| `GET /frames/{id}` | 原始图像 | PNG/JPEG 二进制 | 可视化、下载 |
+| `GET /frames/{id}/text` | 带位置的文本片段 | JSON + text_positions 数组 | 精确定位文本、分析布局 |
+| `POST /frames/{id}/text` | 带位置的文本片段 | JSON + text_positions 数组 | 对未 OCR 的帧执行 OCR |
+| `GET /frames/{id}/elements` | 结构化 UI 元素 | JSON + data 数组 | 分析界面组件、构建 UI 树 |
+| `GET /frames/{id}/context` | 合并文本 + URL | JSON + text + urls | 快速了解帧内容、提取链接 |
+| `GET /frames/{id}/metadata` | 时间戳 | JSON | 时间定位、索引 |
+
+### 主要数据获取端点对比
+
+| 端点 | 返回内容 | 数据格式 | 适用场景 |
+|------|----------|----------|----------|
+| `GET /search` | 多类型搜索结果 | JSON + data 数组 | 内容检索、跨类型搜索 |
+| `GET /activity-summary` | 应用使用统计 | JSON + apps 数组 | 行为分析、时间统计 |
+| `GET /elements` | UI 元素搜索 | JSON + data 数组 | 查找特定 UI 组件 |
+| `POST /raw_sql` | 原始数据库数据 | JSON 数组 | 深度查询、自定义分析 |
+| `GET /health` | 系统健康状态 | JSON | 系统监控 |
+
+### 各端点典型响应示例
+
+**1. `GET /frames/{frame_id}`**
+```
+→ 返回原始 PNG/JPEG 二进制数据（无 JSON）
+```
+
+**2. `GET /frames/{frame_id}/text`**
+```json
+{
+  "frame_id": 439,
+  "text_positions": [
+    {"bounds": {...}, "confidence": 0.5, "text": "Typora"},
+    {"bounds": {...}, "confidence": 1.0, "text": "REST_API_GUIDE.md~"}
+  ]
+}
+```
+
+**3. `GET /frames/{frame_id}/elements`**
+```json
+{
+  "data": [
+    {"id": 16229, "role": "block", "text": "Code", "confidence": 1.0, "bounds": {...}},
+    {"id": 16329, "role": "block", "text": "comprehensive REST API guide...", "confidence": 1.0, "bounds": {...}}
+  ],
+  "pagination": {"limit": 21, "offset": 0, "total": 198}
+}
+```
+
+**4. `GET /frames/{frame_id}/context`**
+```json
+{
+  "frame_id": 439,
+  "text": "合并的纯文本内容...",
+  "text_source": "accessibility",
+  "urls": ["http://localhost:3030/ai/status"],
+  "nodes": []
+}
+```
+
+**5. `GET /frames/{frame_id}/metadata`**
+```json
+{
+  "frame_id": 439,
+  "timestamp": "2026-04-01T20:50:33.176302+08:00"
+}
+```
+
+**6. `GET /search`**
+```json
+{
+  "data": [
+    {"type": "OCR", "content": {"frame_id": 439, "text": "...", "timestamp": "...", "app_name": "Chrome"}},
+    {"type": "Audio", "content": {"chunk_id": 678, "transcription": "...", "speaker": {"name": "John"}}}
+  ],
+  "pagination": {"limit": 10, "offset": 0, "total": 42}
+}
+```
+
+**7. `GET /activity-summary`**
+```json
+{
+  "apps": [
+    {"name": "Chrome", "active_minutes": 45, "first_seen": "...", "last_seen": "...", "recent_texts": [...]}
+  ],
+  "total_active_minutes": 120
+}
+```
+
+**8. `POST /raw_sql`**
+```json
+[
+  {"id": 447, "timestamp": "2026-04-01T20:51:15Z", "app_name": "", "focused": 1, "device_name": "monitor_1"}
+]
 ```
 
 ---
